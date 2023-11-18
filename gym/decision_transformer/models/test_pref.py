@@ -1,7 +1,7 @@
 from absl import app, flags
 from ml_collections import config_flags
 import gym
-import wrappers
+from decision_transformer import wrappers
 import os
 from dataset_utils import D4RLDataset
 from tqdm import tqdm
