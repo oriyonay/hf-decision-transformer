@@ -3,7 +3,7 @@ from ml_collections import config_flags
 import gym
 from decision_transformer import wrappers
 import os
-from dataset_utils import D4RLDataset
+from decision_transformer.dataset_utils import D4RLDataset
 from tqdm import tqdm
 import numpy as np
 import pickle
