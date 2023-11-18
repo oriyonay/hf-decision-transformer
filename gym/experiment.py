@@ -219,6 +219,9 @@ def experiment(
             n_positions=1024,
             resid_pdrop=variant['dropout'],
             attn_pdrop=variant['dropout'],
+
+            embed_hf=variant['embed_hf'], # NEW
+            hf_model_path=variant['hf_model_path'], # NEW
         )
     elif model_type == 'bc':
         model = MLPBCModel(
@@ -302,6 +305,9 @@ if __name__ == '__main__':
     parser.add_argument('--num_steps_per_iter', type=int, default=10000)
     parser.add_argument('--device', type=str, default='cuda')
     parser.add_argument('--log_to_wandb', '-w', type=bool, default=False)
+
+    parser.add_argument('--embed_hf', type=bool, default=True) # NEW
+    parser.add_argument('--hf_model_path', type=str, default=None) # NEW
     
     args = parser.parse_args()
 
