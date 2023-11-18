@@ -6,6 +6,7 @@ import transformers
 
 from decision_transformer.models.model import TrajectoryModel
 from decision_transformer.models.trajectory_gpt2 import GPT2Model
+from decision_transformer.models.test_pref import get_preferences
 
 
 class DecisionTransformer(TrajectoryModel):
@@ -22,6 +23,8 @@ class DecisionTransformer(TrajectoryModel):
             max_length=None,
             max_ep_len=4096,
             action_tanh=True,
+            embed_hf=True, # NEW
+            hf_model_path=None, # NEW
             **kwargs
     ):
         super().__init__(state_dim, act_dim, max_length=max_length)
@@ -51,6 +54,18 @@ class DecisionTransformer(TrajectoryModel):
         )
         self.predict_return = torch.nn.Linear(hidden_size, 1)
 
+        # PROPOSED CHANGES
+        self.embed_hf = embed_hf
+        if embed_hf:
+            assert hf_model_path is not None, 'hf_model_path must be defined if embed_hf = True.'
+            self.embed_hf = nn.Linear(1, hidden_size)
+            self.fuse_rewards = nn.Linear(2 * hidden_size, hidden_size)
+
+            # Load reward model
+            with open(hf_model_path, "rb") as f:
+                ckpt = pickle.load(f)
+            self.reward_model = ckpt['reward_model']
+
     def forward(self, states, actions, rewards, returns_to_go, timesteps, attention_mask=None):
 
         batch_size, seq_length = states.shape[0], states.shape[1]
@@ -64,6 +79,13 @@ class DecisionTransformer(TrajectoryModel):
         action_embeddings = self.embed_action(actions)
         returns_embeddings = self.embed_return(returns_to_go)
         time_embeddings = self.embed_timestep(timesteps)
+
+        # MODIFICATION TO RETURNS_EMBEDDINGS
+        if self.embed_hf:
+            hf_scores = get_preferences(self.reward_model, states, actions, timesteps, attention_mask)[0]
+            hf_embeds = self.embed_hf(hf_scores)
+            returns_and_hf = torch.cat([hf_embeds, returns_embeddings], dim=1)
+            returns_embeddings = self.fuse_rewards(returns_and_hf)
 
         # time embeddings are treated similar to positional embeddings
         state_embeddings = state_embeddings + time_embeddings
