@@ -9,6 +9,7 @@ from decision_transformer.models.model import TrajectoryModel
 from decision_transformer.models.trajectory_gpt2 import GPT2Model
 from decision_transformer.models.test_pref import get_preferences
 
+import JaxPref
 
 class DecisionTransformer(TrajectoryModel):
 
