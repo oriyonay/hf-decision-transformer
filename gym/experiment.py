@@ -306,7 +306,7 @@ if __name__ == '__main__':
     parser.add_argument('--device', type=str, default='cuda')
     parser.add_argument('--log_to_wandb', '-w', type=bool, default=False)
 
-    parser.add_argument('--embed_hf', type=bool, default=True) # NEW
+    parser.add_argument('--embed_hf', type=bool, default=False) # NEW
     parser.add_argument('--hf_model_path', type=str, default=None) # NEW
     
     args = parser.parse_args()
