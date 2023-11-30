@@ -44,7 +44,7 @@ FLAGS = flags.FLAGS
 def batch_to_jax(batch):
     return jax.tree_util.tree_map(jax.device_put, batch)
 
-def get_preferences(reward_model, states, actions, timesteps, attn_mask):
+def get_preferences(reward_model, states, actions, timesteps, attn_mask, with_attn_weights=True, label_mode='last'):
     '''
     Get human feedback embeddings from pretrained Preference Transformer.
 
@@ -58,10 +58,10 @@ def get_preferences(reward_model, states, actions, timesteps, attn_mask):
     - torch.Tensor: the human feedback tensor (shape (batch_size, seq_length, human_feedback_dim))
     '''
     #  turn input as numpy arrays
-    states = states.numpy()
-    actions = actions.numpy()
-    timesteps = timesteps.numpy()
-    attn_mask = attn_mask.numpy()
+    states = states.cpu().numpy()
+    actions = actions.cpu().numpy()
+    timesteps = timesteps.cpu().numpy()
+    attn_mask = attn_mask.cpu().numpy()
 
     input = dict(
         observations=states,
@@ -72,7 +72,8 @@ def get_preferences(reward_model, states, actions, timesteps, attn_mask):
     attn_weights = []
     # turn input as jax tree
     jax_input = batch_to_jax(input)
-    if FLAGS.with_attn_weights:
+    # if FLAGS.with_attn_weights:
+    if with_attn_weights:
         new_reward, attn_weight = reward_model.get_reward(jax_input)
         # new_reward: shape (batch, seq_len, human_pref_dim(1 as deafult))
         # attn_weight: shape (batch, num_head, seq_len, seq_len)
@@ -80,14 +81,16 @@ def get_preferences(reward_model, states, actions, timesteps, attn_mask):
     else:
         new_reward, _ = reward_model.get_reward(jax_input)
 
-    if FLAGS.label_mode == "mean":
+    # if FLAGS.label_mode == "mean":
+    if label_mode == "mean":
         new_reward = jnp.sum(new_reward, axis=1) / jnp.sum(attn_mask, axis=1)
         new_reward = new_reward.reshape(-1, 1)
-    elif FLAGS.label_mode == "last":
+    # elif FLAGS.label_mode == "last":
+    elif label_mode == "last":
         new_reward = new_reward[:, -1].reshape(-1, 1)
     # turn reward from jax array to torch tensor
-    new_reward = torch.Tensor(np.asarray(list(new_reward)))
-    attn_weight = torch.Tensor(np.asarray(list(attn_weight)))
+    new_reward = torch.Tensor(np.asarray(list(new_reward))).to("cuda:0")
+    attn_weight = torch.Tensor(np.asarray(list(attn_weight))).to("cuda:0")
 
     return new_reward, attn_weight
 

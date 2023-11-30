@@ -1,12 +1,13 @@
 import numpy as np
 import torch
-
+from tqdm import tqdm
+import pickle
 import time
-
+import os
 
 class Trainer:
 
-    def __init__(self, model, optimizer, batch_size, get_batch, loss_fn, scheduler=None, eval_fns=None):
+    def __init__(self, model, optimizer, batch_size, get_batch, loss_fn, model_path, scheduler=None, eval_fns=None):
         self.model = model
         self.optimizer = optimizer
         self.batch_size = batch_size
@@ -15,10 +16,10 @@ class Trainer:
         self.scheduler = scheduler
         self.eval_fns = [] if eval_fns is None else eval_fns
         self.diagnostics = dict()
-
+        self.model_path = model_path
         self.start_time = time.time()
 
-    def train_iteration(self, num_steps, iter_num=0, print_logs=False):
+    def train_iteration(self, num_steps, iter_num=0, print_logs=True, save_model=False, get_replay=False):
 
         train_losses = []
         logs = dict()
@@ -26,11 +27,14 @@ class Trainer:
         train_start = time.time()
 
         self.model.train()
-        for _ in range(num_steps):
+        # for _ in range(num_steps):
+        for _ in tqdm(range(num_steps), desc = "Steps:"):
             train_loss = self.train_step()
             train_losses.append(train_loss)
             if self.scheduler is not None:
                 self.scheduler.step()
+        os.makedirs(self.model_path, exist_ok=True)
+        os.makedirs(self.model_path+f"replay/", exist_ok=True)
 
         logs['time/training'] = time.time() - train_start
 
@@ -38,10 +42,19 @@ class Trainer:
 
         self.model.eval()
         for eval_fn in self.eval_fns:
-            outputs = eval_fn(self.model)
+            outputs, best_traj, worst_traj, target_rew = eval_fn(self.model)
             for k, v in outputs.items():
                 logs[f'evaluation/{k}'] = v
-
+        
+            if save_model:
+                torch.save(self.model.state_dict(), self.model_path+f"model_{iter_num}.pth")
+            os.makedirs(self.model_path+f"replay/{iter_num}", exist_ok=True)
+            if get_replay:
+                with open(self.model_path+f"replay/{iter_num}/best_traj_{target_rew}.pkl", "wb") as f:
+                    pickle.dump(best_traj, f)
+                with open(self.model_path+f"replay/{iter_num}/worst_traj_{target_rew}.pkl", "wb") as f:
+                    pickle.dump(worst_traj, f)
+        
         logs['time/total'] = time.time() - self.start_time
         logs['time/evaluation'] = time.time() - eval_start
         logs['training/train_loss_mean'] = np.mean(train_losses)

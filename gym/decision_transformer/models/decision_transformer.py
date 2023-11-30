@@ -9,7 +9,7 @@ from decision_transformer.models.model import TrajectoryModel
 from decision_transformer.models.trajectory_gpt2 import GPT2Model
 from decision_transformer.models.test_pref import get_preferences
 
-from decision_transformer.models import JaxPref
+# from decision_transformer.models import JaxPref
 
 class DecisionTransformer(TrajectoryModel):
 
@@ -84,9 +84,17 @@ class DecisionTransformer(TrajectoryModel):
 
         # MODIFICATION TO RETURNS_EMBEDDINGS
         if self.embed_hf:
-            hf_scores = get_preferences(self.reward_model, states, actions, timesteps, attention_mask)[0]
+            if self.training:
+                hf_scores = torch.Tensor(rewards)
+            else:
+                hf_scores = get_preferences(self.reward_model, states, actions, timesteps, attention_mask)[0]
+
             hf_embeds = self.embed_hf(hf_scores)
-            returns_and_hf = torch.cat([hf_embeds, returns_embeddings], dim=1)
+
+            hf_scores = hf_scores.reshape(batch_size, seq_length, -1)
+            hf_embeds = hf_embeds.reshape(batch_size, seq_length, -1)
+
+            returns_and_hf = torch.cat([hf_embeds, returns_embeddings], dim=-1)
             returns_embeddings = self.fuse_rewards(returns_and_hf)
 
         # time embeddings are treated similar to positional embeddings

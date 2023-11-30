@@ -2,11 +2,13 @@ import gym
 import numpy as np
 import torch
 import wandb
+from tqdm import tqdm
 
 import argparse
 import pickle
 import random
 import sys
+from heapq import heapify, heappop, heappush
 
 from decision_transformer.evaluation.evaluate_episodes import evaluate_episode, evaluate_episode_rtg
 from decision_transformer.models.decision_transformer import DecisionTransformer
@@ -34,6 +36,7 @@ def experiment(
     model_type = variant['model_type']
     group_name = f'{exp_prefix}-{env_name}-{dataset}'
     exp_prefix = f'{group_name}-{random.randint(int(1e5), int(1e6) - 1)}'
+    from_d4rl = variant['from_d4rl']
 
     if env_name == 'hopper':
         env = gym.make('Hopper-v3')
@@ -56,6 +59,24 @@ def experiment(
         max_ep_len = 100
         env_targets = [76, 40]
         scale = 10.
+    elif from_d4rl:
+        env = gym.make(env_name)
+        if 'antmaze' in env_name:
+            max_ep_len = 100
+            env_targets = [100, 90]
+            scale = 100.
+        elif 'hopper' in env_name:
+            max_ep_len = 1000
+            env_targets = [3600, 1800]
+            scale = 1000.
+        elif 'walker2d' in env_name:
+            max_ep_len = 1000
+            env_targets = [5000, 2500]
+            scale = 1000.
+        elif 'hammer' in env_name:
+            max_ep_len = 500
+            env_targets = [16000, 8000]
+            scale = 10.
     else:
         raise NotImplementedError
 
@@ -66,12 +87,44 @@ def experiment(
     act_dim = env.action_space.shape[0]
 
     # load dataset
-    dataset_path = f'data/{env_name}-{dataset}-v2.pkl'
+    if from_d4rl:
+        if variant["embed_hf"]:
+            dataset_path = f'data/reward_hf_{env_name}.pkl'
+        else:
+            dataset_path = f'data/{env_name}.pkl'
+    else:
+        dataset_path = f'data/{env_name}-{dataset}-v2.pkl'
     with open(dataset_path, 'rb') as f:
         trajectories = pickle.load(f)
-
+    # print(trajectories.keys())
     # save all path information into separate lists
     mode = variant.get('mode', 'normal')
+
+    if from_d4rl:
+        # transform the d4rl raw data into list of trajectories dictionary
+        new_trajectories = []
+        obs, act, rewards, dones = [], [], [], []
+        for i in tqdm(range(len(trajectories["observations"])), desc="split"):
+            obs.append(trajectories["observations"][i])
+            act.append(trajectories["actions"][i])
+            rewards.append(trajectories["rewards"][i])
+            dones.append(trajectories["dones"][i])
+
+            if trajectories["dones"][i] == 1.0 and i + 1 < len(trajectories["observations"]):
+                traj = {
+                    "observations": np.array(obs),
+                    "actions": np.array(act),
+                    "rewards": np.array(rewards),
+                    "dones": np.array(dones)
+                }
+                new_trajectories.append(traj)
+                obs, act, rewards, dones = [], [], [], []
+        trajectories = new_trajectories
+                # states.append([])
+                # traj_lens.append([])
+                # returns.append([])
+                # break
+    # else:
     states, traj_lens, returns = [], [], []
     for path in trajectories:
         if mode == 'delayed':  # delayed: all rewards moved to end of trajectory
@@ -91,6 +144,7 @@ def experiment(
     print('=' * 50)
     print(f'Starting new experiment: {env_name} {dataset}')
     print(f'{len(traj_lens)} trajectories, {num_timesteps} timesteps found')
+    print(f'Average trajectories length, {np.mean(traj_lens)}')
     print(f'Average return: {np.mean(returns):.2f}, std: {np.std(returns):.2f}')
     print(f'Max return: {np.max(returns):.2f}, min: {np.min(returns):.2f}')
     print('=' * 50)
@@ -166,10 +220,14 @@ def experiment(
     def eval_episodes(target_rew):
         def fn(model):
             returns, lengths = [], []
-            for _ in range(num_eval_episodes):
+            best_traj = []
+            # heapify(best_traj)
+            worst_traj = []
+            K = 2
+            for _ in tqdm(range(num_eval_episodes), desc = "Eval steps"):
                 with torch.no_grad():
                     if model_type == 'dt':
-                        ret, length = evaluate_episode_rtg(
+                        ret, length, replay = evaluate_episode_rtg(
                             env,
                             state_dim,
                             act_dim,
@@ -195,6 +253,15 @@ def experiment(
                             state_std=state_std,
                             device=device,
                         )
+                
+                heappush(best_traj, (np.mean(ret), replay))
+                if len(best_traj) > K:
+                    heappop(best_traj)
+                
+                heappush(worst_traj, (-np.mean(ret), replay))
+                if len(worst_traj) > K:
+                    heappop(worst_traj)
+
                 returns.append(ret)
                 lengths.append(length)
             return {
@@ -202,7 +269,7 @@ def experiment(
                 f'target_{target_rew}_return_std': np.std(returns),
                 f'target_{target_rew}_length_mean': np.mean(lengths),
                 f'target_{target_rew}_length_std': np.std(lengths),
-            }
+            }, best_traj, worst_traj, target_rew
         return fn
 
     if model_type == 'dt':
@@ -256,6 +323,7 @@ def experiment(
             scheduler=scheduler,
             loss_fn=lambda s_hat, a_hat, r_hat, s, a, r: torch.mean((a_hat - a)**2),
             eval_fns=[eval_episodes(tar) for tar in env_targets],
+            model_path= f"ckpt/{env_name}/"
         )
     elif model_type == 'bc':
         trainer = ActTrainer(
@@ -266,6 +334,7 @@ def experiment(
             scheduler=scheduler,
             loss_fn=lambda s_hat, a_hat, r_hat, s, a, r: torch.mean((a_hat - a)**2),
             eval_fns=[eval_episodes(tar) for tar in env_targets],
+            model_path= f"ckpt/{env_name}/"
         )
 
     if log_to_wandb:
@@ -278,7 +347,7 @@ def experiment(
         # wandb.watch(model)  # wandb has some bug
 
     for iter in range(variant['max_iters']):
-        outputs = trainer.train_iteration(num_steps=variant['num_steps_per_iter'], iter_num=iter+1, print_logs=True)
+        outputs = trainer.train_iteration(num_steps=variant['num_steps_per_iter'], iter_num=iter+1, print_logs=True, save_model = variant["save_model"], get_replay = variant["replay"])
         if log_to_wandb:
             wandb.log(outputs)
 
@@ -304,10 +373,17 @@ if __name__ == '__main__':
     parser.add_argument('--max_iters', type=int, default=10)
     parser.add_argument('--num_steps_per_iter', type=int, default=10000)
     parser.add_argument('--device', type=str, default='cuda')
-    parser.add_argument('--log_to_wandb', '-w', type=bool, default=False)
+    # parser.add_argument('--log_to_wandb', '-w', type=bool, default=True)
+    parser.add_argument('--log_to_wandb', '-w', action='store_false')
 
     parser.add_argument('--embed_hf', type=bool, default=False) # NEW
     parser.add_argument('--hf_model_path', type=str, default=None) # NEW
+    parser.add_argument('--from_d4rl', type=bool, default=False) # NEW
+    parser.add_argument('--replay', type=bool, default=False) # NEW
+    parser.add_argument('--save_model', type=bool, default=False) # NEW
+
+
+
     
     args = parser.parse_args()
 

@@ -81,7 +81,7 @@ def evaluate_episode_rtg(
 
     state_mean = torch.from_numpy(state_mean).to(device=device)
     state_std = torch.from_numpy(state_std).to(device=device)
-
+    #  the target goal statemnt is in d4rl locomotion maze_env py line 266
     state = env.reset()
     if mode == 'noise':
         state = state + np.random.normal(0, 0.1, size=state.shape)
@@ -97,7 +97,6 @@ def evaluate_episode_rtg(
     timesteps = torch.tensor(0, device=device, dtype=torch.long).reshape(1, 1)
 
     sim_states = []
-
     episode_return, episode_length = 0, 0
     for t in range(max_ep_len):
 
@@ -136,5 +135,9 @@ def evaluate_episode_rtg(
 
         if done:
             break
-
-    return episode_return, episode_length
+    replay = {
+        "states": states,
+        "actions": actions,
+        "rewards": rewards
+    }
+    return episode_return, episode_length, replay
