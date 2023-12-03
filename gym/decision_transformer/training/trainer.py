@@ -19,6 +19,10 @@ class Trainer:
         self.model_path = model_path
         self.start_time = time.time()
 
+        # initialize targets and best performances
+        targets = ['target_1800_return_mean', 'target_3600_return_mean']
+        self.best_performances = {target : float('-inf') for target in targets}
+
     def train_iteration(self, num_steps, iter_num=0, print_logs=True, save_model=False, get_replay=False):
 
         train_losses = []
@@ -39,10 +43,6 @@ class Trainer:
         logs['time/training'] = time.time() - train_start
 
         eval_start = time.time()
-
-        # initialize targets and best performances
-        targets = ['target_3600_return_mean', 'target_3600_length_mean']
-        best_performances = {target : float('-inf') for target in targets}
         
         self.model.eval()
         for eval_fn in self.eval_fns:
@@ -51,10 +51,12 @@ class Trainer:
                 logs[f'evaluation/{k}'] = v
 
             # save best model for each target
-            for target, best_performance in best_performances.items():
+            for target, best_performance in self.best_performances.items():
+                if target not in outputs:
+                    continue
                 current_performance = outputs[target]
                 if current_performance > best_performance:
-                    best_performance = current_performance
+                    self.best_performances[target] = current_performance
                     if save_model:
                         target_n = target.split('_')[1]
                         torch.save(self.model.state_dict(), self.model_path + f"best_model_for_{target_n}.pth")
