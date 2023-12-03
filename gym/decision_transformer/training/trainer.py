@@ -41,7 +41,7 @@ class Trainer:
         eval_start = time.time()
 
         # initialize targets and best performances
-        targets = ['target_1800_return_mean', 'target_3600_return_mean']
+        targets = ['target_3600_return_mean', 'target_3600_length_mean']
         best_performances = {target : float('-inf') for target in targets}
         
         self.model.eval()
