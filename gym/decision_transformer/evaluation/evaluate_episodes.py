@@ -82,7 +82,10 @@ def evaluate_episode_rtg(
     state_mean = torch.from_numpy(state_mean).to(device=device)
     state_std = torch.from_numpy(state_std).to(device=device)
     #  the target goal statemnt is in d4rl locomotion maze_env py line 266
+    # [VIAZ] set the seed and save it into pickle 
     state = env.reset()
+    seed = np.random.randint(0, np.iinfo(np.int32).max)
+    env.seed(seed)
     if mode == 'noise':
         state = state + np.random.normal(0, 0.1, size=state.shape)
 
@@ -134,8 +137,11 @@ def evaluate_episode_rtg(
         episode_length += 1
 
         if done:
+            # print(f"Episode done on {t}, episode length: {episode_length}, episode return: {episode_return}")
             break
+
     replay = {
+        "seed": seed,
         "states": states,
         "actions": actions,
         "rewards": rewards
