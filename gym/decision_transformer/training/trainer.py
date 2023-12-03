@@ -51,7 +51,7 @@ class Trainer:
                 logs[f'evaluation/{k}'] = v
 
             # save best model for each target
-            for target, best_performance in best_performances.values():
+            for target, best_performance in best_performances.items():
                 current_performance = outputs[target]
                 if current_performance > best_performance:
                     best_performance = current_performance
