@@ -40,14 +40,25 @@ class Trainer:
 
         eval_start = time.time()
 
+        # initialize targets and best performances
+        targets = ['target_1800_return_mean', 'target_3600_return_mean']
+        best_performances = {target : float('-inf') for target in targets}
+        
         self.model.eval()
         for eval_fn in self.eval_fns:
             outputs, best_traj, worst_traj, target_rew = eval_fn(self.model)
             for k, v in outputs.items():
                 logs[f'evaluation/{k}'] = v
-        
-            if save_model:
-                torch.save(self.model.state_dict(), self.model_path+f"model_{iter_num}.pth")
+
+            # save best model for each target
+            for target, best_performance in best_performances.values():
+                current_performance = outputs[target]
+                if current_performance > best_performance:
+                    best_performance = current_performance
+                    if save_model:
+                        target_n = target.split('_')[1]
+                        torch.save(self.model.state_dict(), self.model_path + f"best_model_for_{target_n}.pth")
+                        
             os.makedirs(self.model_path+f"replay/{iter_num}", exist_ok=True)
             if get_replay:
                 with open(self.model_path+f"replay/{iter_num}/best_traj_{target_rew}.pkl", "wb") as f:
