@@ -7,7 +7,7 @@ import os
 
 class Trainer:
 
-    def __init__(self, model, optimizer, batch_size, get_batch, loss_fn, model_path, scheduler=None, eval_fns=None):
+    def __init__(self, model, optimizer, batch_size, get_batch, loss_fn, model_path, inference_only, scheduler=None, eval_fns=None):
         self.model = model
         self.optimizer = optimizer
         self.batch_size = batch_size
@@ -17,6 +17,7 @@ class Trainer:
         self.eval_fns = [] if eval_fns is None else eval_fns
         self.diagnostics = dict()
         self.model_path = model_path
+        self.inference_only = inference_only
         self.start_time = time.time()
 
         # initialize targets and best performances
@@ -27,23 +28,30 @@ class Trainer:
 
         train_losses = []
         logs = dict()
+        if self.inference_only:
+            # self.start_time = time.time()
+            train_losses = np.empty((1,1))
+        else:
+            train_start = time.time()
 
-        train_start = time.time()
+            self.model.train()
+            # for _ in range(num_steps):
+            for _ in tqdm(range(num_steps), desc = "Steps:"):
+                train_loss = self.train_step()
+                train_losses.append(train_loss)
+                if self.scheduler is not None:
+                    self.scheduler.step()
+            os.makedirs(self.model_path, exist_ok=True)
+            os.makedirs(self.model_path+f"replay/", exist_ok=True)
 
-        self.model.train()
-        # for _ in range(num_steps):
-        for _ in tqdm(range(num_steps), desc = "Steps:"):
-            train_loss = self.train_step()
-            train_losses.append(train_loss)
-            if self.scheduler is not None:
-                self.scheduler.step()
-        os.makedirs(self.model_path, exist_ok=True)
-        os.makedirs(self.model_path+f"replay/", exist_ok=True)
-
-        logs['time/training'] = time.time() - train_start
+            logs['time/training'] = time.time() - train_start
 
         eval_start = time.time()
-        
+        if self.inference_only:
+            # [DEBUG] load model for each iteration to get back the evaluation results
+            self.model.load_state_dict(torch.load(self.model_path + f"model_{iter_num}.pth"))
+            # self.model.load_state_dict(torch.load(self.model_path + f"model_10.pth"))
+            #  
         self.model.eval()
         for eval_fn in self.eval_fns:
             outputs, best_traj, worst_traj, target_rew = eval_fn(self.model)
@@ -62,10 +70,13 @@ class Trainer:
                         torch.save(self.model.state_dict(), self.model_path + f"best_model_for_{target_n}.pth")
                         
             os.makedirs(self.model_path+f"replay/{iter_num}", exist_ok=True)
+            # os.makedirs(self.model_path+f"replay/ep10000", exist_ok=True)
             if get_replay:
                 with open(self.model_path+f"replay/{iter_num}/best_traj_{target_rew}.pkl", "wb") as f:
+                # with open(self.model_path+f"replay/ep10000/best_traj_{target_rew}.pkl", "wb") as f:
                     pickle.dump(best_traj, f)
                 with open(self.model_path+f"replay/{iter_num}/worst_traj_{target_rew}.pkl", "wb") as f:
+                # with open(self.model_path+f"replay/ep10000/worst_traj_{target_rew}.pkl", "wb") as f:
                     pickle.dump(worst_traj, f)
         
         logs['time/total'] = time.time() - self.start_time

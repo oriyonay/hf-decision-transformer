@@ -61,7 +61,11 @@ class DecisionTransformer(TrajectoryModel):
         if embed_hf:
             assert hf_model_path is not None, 'hf_model_path must be defined if embed_hf = True.'
             self.embed_hf = nn.Linear(1, hidden_size)
+            # self.bn_hf = nn.BatchNorm1d(max_length)
+            # self.relu_hf = nn.ReLU()
             self.fuse_rewards = nn.Linear(2 * hidden_size, hidden_size)
+            # self.bn_fuse = nn.BatchNorm1d(max_length)
+            # self.relu_fuse = nn.ReLU()
 
             # Load reward model
             with open(hf_model_path, "rb") as f:
@@ -88,14 +92,20 @@ class DecisionTransformer(TrajectoryModel):
                 hf_scores = torch.Tensor(rewards)
             else:
                 hf_scores = get_preferences(self.reward_model, states, actions, timesteps, attention_mask)[0]
+                hf_scores = hf_scores.unsqueeze(0)
 
             hf_embeds = self.embed_hf(hf_scores)
+            # hf_embeds = self.bn_hf(hf_embeds)
+            # hf_embeds = self.relu_hf(hf_embeds)
 
-            hf_scores = hf_scores.reshape(batch_size, seq_length, -1)
+
+            # hf_scores = hf_scores.reshape(batch_size, seq_length, -1)
             hf_embeds = hf_embeds.reshape(batch_size, seq_length, -1)
 
             returns_and_hf = torch.cat([hf_embeds, returns_embeddings], dim=-1)
             returns_embeddings = self.fuse_rewards(returns_and_hf)
+            # returns_embeddings = self.bn_fuse(returns_embeddings)
+            # returns_embeddings = self.relu_fuse(returns_embeddings)
 
         # time embeddings are treated similar to positional embeddings
         state_embeddings = state_embeddings + time_embeddings

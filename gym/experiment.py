@@ -80,6 +80,10 @@ def experiment(
     else:
         raise NotImplementedError
 
+    ##[EXPT] 
+    # env_targets = [t*10 for t in env_targets]
+    exp_prefix = f'{group_name}'
+    # print(exp_prefix)
     if model_type == 'bc':
         env_targets = env_targets[:1]  # since BC ignores target, no need for different evaluations
 
@@ -223,8 +227,9 @@ def experiment(
             best_traj = []
             # heapify(best_traj)
             worst_traj = []
-            K = 2
+            topK = 5
             for _ in tqdm(range(num_eval_episodes), desc = "Eval steps"):
+            # for _ in tqdm(range(2), desc = "Eval steps"):
                 with torch.no_grad():
                     if model_type == 'dt':
                         ret, length, replay = evaluate_episode_rtg(
@@ -253,13 +258,16 @@ def experiment(
                             state_std=state_std,
                             device=device,
                         )
-                
-                heappush(best_traj, (np.mean(ret), replay))
-                if len(best_traj) > K:
+                # minheap    
+                if len(best_traj) < topK or np.mean(ret) > best_traj[0][0]:
+                    heappush(best_traj, (np.mean(ret), random.random(), replay))
+                if len(best_traj) > topK:
                     heappop(best_traj)
-                
-                heappush(worst_traj, (-np.mean(ret), replay))
-                if len(worst_traj) > K:
+
+                #maxheap
+                if len(worst_traj) < topK or -np.mean(ret) > worst_traj[0][0]:
+                    heappush(worst_traj, (-np.mean(ret), random.random(), replay))
+                if len(worst_traj) > topK:
                     heappop(worst_traj)
 
                 returns.append(ret)
@@ -300,7 +308,10 @@ def experiment(
         )
     else:
         raise NotImplementedError
-
+    # if variant['skip_training']:
+    #     assert variant['dt_model_path'] is not None
+    #     model.load_state_dict(torch.load(variant['dt_model_path']))
+    #     print("*"*15 + f"loaded model weight from {variant['dt_model_path']}" + "*"*15)
     model = model.to(device=device)
 
     warmup_steps = variant['warmup_steps']
@@ -323,7 +334,9 @@ def experiment(
             scheduler=scheduler,
             loss_fn=lambda s_hat, a_hat, r_hat, s, a, r: torch.mean((a_hat - a)**2),
             eval_fns=[eval_episodes(tar) for tar in env_targets],
-            model_path= f"ckpt/{env_name}/"
+            model_path= f"ckpt/{env_name}/",
+            inference_only= variant['inference_only']
+
         )
     elif model_type == 'bc':
         trainer = ActTrainer(
@@ -334,12 +347,14 @@ def experiment(
             scheduler=scheduler,
             loss_fn=lambda s_hat, a_hat, r_hat, s, a, r: torch.mean((a_hat - a)**2),
             eval_fns=[eval_episodes(tar) for tar in env_targets],
-            model_path= f"ckpt/{env_name}/"
+            model_path= f"ckpt/{env_name}/",
+            skip_training= variant['inference_only']
+
         )
 
     if log_to_wandb:
         wandb.init(
-            name=exp_prefix,
+            name=exp_prefix + ("inference_only" if variant['inference_only'] else ""),
             group=group_name,
             project='decision-transformer',
             config=variant
@@ -376,11 +391,13 @@ if __name__ == '__main__':
     # parser.add_argument('--log_to_wandb', '-w', type=bool, default=True)
     parser.add_argument('--log_to_wandb', '-w', action='store_false')
 
-    parser.add_argument('--embed_hf', type=bool, default=False) # NEW
+    parser.add_argument('--embed_hf',  action='store_true') # NEW
     parser.add_argument('--hf_model_path', type=str, default=None) # NEW
-    parser.add_argument('--from_d4rl', type=bool, default=False) # NEW
-    parser.add_argument('--replay', type=bool, default=False) # NEW
-    parser.add_argument('--save_model', type=bool, default=False) # NEW
+    parser.add_argument('--from_d4rl', action='store_true') # NEW
+    parser.add_argument('--replay', action='store_true') # NEW
+    parser.add_argument('--save_model', action='store_true') # NEW
+    parser.add_argument('--inference_only', action='store_true') # NEW
+    parser.add_argument('--dt_model_path', type=str, default=None) # NEW
 
 
 

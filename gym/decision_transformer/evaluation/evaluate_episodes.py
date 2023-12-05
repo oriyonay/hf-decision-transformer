@@ -136,7 +136,7 @@ def evaluate_episode_rtg(
         episode_return += reward
         episode_length += 1
 
-        if done:
+        if done :
             # print(f"Episode done on {t}, episode length: {episode_length}, episode return: {episode_return}")
             break
 
